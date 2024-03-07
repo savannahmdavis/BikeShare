@@ -1,0 +1,333 @@
+---
+title: "Bike Share Report"
+output: html_document
+---
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(plotly)
+
+# Read in csv files
+ny <- read.csv('new_york_city.csv')
+wash <- read.csv('washington.csv')
+chi <- read.csv('chicago.csv')
+```
+
+```{r message=FALSE, warning=FALSE}
+# Displays first rows of each dataframe
+head(ny)
+
+head(wash)
+
+head(chi)
+```
+
+```{r}
+# Data manipulation 
+
+calculate_age <- function(df, birth_year, start_time) {
+  #' Calculates user age by subtracting birth year from start year
+
+  # Converts Start.Time to Date datatype
+  df[[start_time]] <- as.Date(df[[start_time]])
+  
+  # Extracts year from Start.Time
+  start_year <- year(df[[start_time]])
+  
+  # Calculates difference in years
+  age_difference <- start_year - df[[birth_year]]
+
+  # Returns age
+  return(age_difference)
+}
+
+# Creating new column for age and applying function
+ny$age <- calculate_age(ny, "Birth.Year", "Start.Time")
+chi$age <- calculate_age(chi, "Birth.Year", "Start.Time")
+
+# Creating new column for city name
+ny$city <- "New York"
+chi$city <- "Chicago"
+wash$city <- "Washington"
+
+# Combining ny and chi dataframes into one dataframe
+ny_chi <- rbind(ny, chi)
+
+# Removing dissimilar columns compared to wash
+ny_trunc <- ny %>%
+  select(-one_of("Gender", "Birth.Year", "age"))
+
+chi_trunc <- chi %>%
+  select(-one_of("Gender", "Birth.Year", "age"))
+
+# Combining ny, chi, and wash dataframes into one dataframe
+all_city <- rbind(ny_trunc, chi_trunc, wash)
+```
+
+### How do subscriber ages compare by gender in Chicago versus New York?
+
+<br></br>
+
+```{r warning=FALSE, message=FALSE}
+subscriber_age <- ny_chi %>%
+  # Filters for Subscribers, non-null age, and non-null gender
+  filter(User.Type == "Subscriber" & !(is.na(age)) & Gender=="Male" | Gender=="Female") %>%
+  group_by(city, Gender, age) %>%
+  summarise(subscriber_count = n())
+
+# Finds highest subscriber count for females in New York
+max_f_ny <- subscriber_age %>%
+  filter(city == "New York", Gender == "Female") %>%
+  arrange(desc(subscriber_count)) %>%
+  slice(1)
+
+max_f_ny
+
+# Finds highest subscriber count for males in New York
+max_m_ny <- subscriber_age %>%
+  filter(city == "New York", Gender == "Male") %>%
+  arrange(desc(subscriber_count)) %>%
+  slice(1)
+
+max_m_ny
+
+# Finds highest subscriber count for females in Chicago
+max_f_chi <- subscriber_age %>%
+  filter(city == "Chicago", Gender == "Female") %>%
+  arrange(desc(subscriber_count)) %>%
+  slice(1)
+
+max_f_chi
+
+# Finds highest subscriber count for males in Chicago
+max_m_chi <- subscriber_age %>%
+  filter(city == "Chicago", Gender == "Male") %>%
+  arrange(desc(subscriber_count)) %>%
+  slice(1)
+
+max_m_chi
+
+# Finds count for females and males in each city
+f_m_count <- ny_chi %>%
+  filter(User.Type == "Subscriber" & !(is.na(age)) & Gender=="Male" | Gender=="Female") %>%
+  group_by(city, Gender) %>%
+  summarise(count = n())
+
+f_m_count
+
+graph1 <- ny_chi %>%
+  # Filters for Subscribers, non-null age, and non-null gender
+  filter(User.Type == "Subscriber" & !(is.na(age)) & Gender=="Male" | Gender=="Female") %>%
+  # Creates histogram with labels
+  ggplot(aes(x = age)) + 
+  geom_histogram(binwidth=5, color="black", fill="lightblue") + 
+  labs(title="Distribution of Age by Gender in New York vs Chicago", x="Age", y="Count") + 
+  # facets by gender and city
+  facet_grid(city~Gender) +
+  theme_minimal() + 
+  scale_x_continuous(breaks = seq(0, 100, by=10))
+
+# Converts to a plotly graph for tooltip functionality
+ggplotly(graph1)
+```
+
+#### Summary 
+
+The histograms display the distribution of age faceted by gender for New York and Chicago. 
+While the counts for Chicago are lower than the counts for New York, it can be seen 
+that for both cities, there are more men than women riders. In New York, there are 36,625 men
+compared to 12,159 women. In Chicago, there are 5,159 men and 1,723 women. Both cities' histograms are
+also skewed right for both men and women. It appears that most riders are between people
+in their early twenties to mid-thirties, regardless of city. The most frequent age for 
+female subscribers in New York is 28 while it is 32 for male subscribers. The most 
+frequent age for female subscribers in Chicago is 25 while it is 28 for males in 
+Chicago.
+
+
+### How does the average trip duration compare by user type across different cities?
+
+<br></br>
+
+```{r warning=FALSE, message=FALSE}
+# Creates new column for converting trip duration from seconds to minutes
+all_city$Trip.Duration.Mins <- all_city$Trip.Duration / 60
+
+avg_trip <- all_city %>%
+  # Filters for non-null user types
+  filter(User.Type == "Subscriber" | User.Type == "Customer") %>%
+  group_by(city, User.Type) %>%
+  # Calculating average trip duration by city and user type
+  summarise(Average = mean(Trip.Duration.Mins, na.rm=T))
+
+avg_trip
+
+graph2 <- avg_trip %>%
+  # Creates grouped bar chart with labels
+  ggplot(aes(x=city, y=Average, fill=User.Type)) + 
+  geom_col(position = "dodge") + 
+  labs(title="Average Trip Duration by User Type by City", 
+       x="City", 
+       y="Trip Duration (Minutes)", 
+       fill="User Type") +
+  theme_minimal() + 
+  scale_fill_brewer(palette="Paired")
+
+# Converts to a plotly graph for tooltip functionality
+ggplotly(graph2)
+
+```
+<br></br>
+
+#### Summary
+
+The grouped bar chart shows that across all cities in the data, customers take
+longer average trips than subscribers. Customers in Washington seem to take the 
+longest trips on average, followed by New York, and then Chicago at 43.9 minutes, 
+36.6 minutes, and 32.2 minutes, respectively. The subscribers across all cities 
+take similar trip duration on average at 11.4 minutes for Chicago, 
+12.6 minutes for New York and 12.2 minutes for Washington. This could be due to 
+one-time customers tending to be tourists and subscribers tending to be locals 
+using bike sharing for commuting to work, however this cannot be proven or denied
+based on the dataset.
+
+
+### How do daily and hourly usage rates compare by city?
+
+<br></br>
+
+#### New York
+
+```{r message=FALSE, warning=FALSE}
+extract_hour_day <- function(df, start_time) {
+  #' Extracts the hour and day of the week from Start.Time and order the days of the week
+  
+  # Convert Start.Time to POSIXct datetime format
+  df[[start_time]] <- as.POSIXct(df[[start_time]], format = "%Y-%m-%d %H:%M:%S")
+  
+  # Extract hour and day of the week from Start.Time
+  df$hour <- format(df[[start_time]], "%H")
+  df$day_of_week <- format(df[[start_time]], "%A")
+  
+  # Order days of the week
+  df$day_of_week <- factor(df$day_of_week, levels=c("Sunday", "Saturday", "Friday", "Thursday", "Wednesday",
+                                                    "Tuesday", "Monday"))
+  return(df)
+}
+
+usage_df <- function(df) {
+  #' Filters, groups by day of the week and hour, and finds trip count for the df
+
+  # Filters and summarises dataframe
+  usage_detail <- df %>%
+    filter(!(is.na(day_of_week)) & !(is.na(hour))) %>%
+    group_by(day_of_week, hour) %>%
+    summarise(trip_count = n(), .groups = 'drop')
+  
+  return(usage_detail)
+}
+
+plot_heatmap <- function(df) {
+  #' Plots the usage detail df in a heatmap
+  
+   plot <- ggplot(df, aes(x = hour, y = day_of_week, fill = trip_count)) +
+    # Creates heatmap with labels
+    geom_tile() + 
+    scale_fill_gradient(low = "lightblue", high = "darkblue") +
+    theme_minimal() +
+    labs(title = "Bike Usage by Hour and Day of the Week",
+         x = "Hour of the Day",
+         y = "Day of the Week",
+         fill = "Trip Count")
+   
+   return(plot)
+}
+
+# Extracts hour and day of week from New York dataframe
+hour_day_ny <- extract_hour_day(ny, "Start.Time")
+
+# Returns usage dataframe
+detail_ny <- usage_df(hour_day_ny)
+
+# Finds top 5 highest usage times
+usage_summary <- detail_ny %>%
+  arrange(desc(trip_count)) %>%
+  slice(c(1, n()))
+
+# Prints top 5 usage times
+usage_summary
+
+# Returns heatmap for New York dataframe
+plot_heatmap(detail_ny)
+```
+
+
+#### Chicago
+
+<br></br>
+
+```{r}
+# Extracts hour and day of week from Chicago dataframe
+hour_day_chi <- extract_hour_day(chi, "Start.Time")
+
+# Returns usage dataframe
+detail_chi <- usage_df(hour_day_chi)
+
+# Finds top 5 highest usage times
+usage_summary2 <- detail_chi %>%
+  arrange(desc(trip_count)) %>%
+  slice(c(1, n()))
+
+# Prints top 5 usage times
+usage_summary2
+
+# Returns heatmap for Chicago dataframe
+plot_heatmap(detail_chi)
+```
+
+#### Washington D.C.
+
+<br></br>
+
+```{r}
+# Extracts hour and day of week from Washington dataframe
+hour_day_wash <- extract_hour_day(wash, "Start.Time")
+
+# Returns usage dataframe
+detail_wash <- usage_df(hour_day_wash)
+
+# Finds top 5 highest usage times
+usage_summary3 <- detail_wash %>%
+  arrange(desc(trip_count)) %>%
+  slice(c(1, n()))
+
+# Prints top 5 usage times
+usage_summary3
+
+# Returns heatmap for Washington dataframe
+plot_heatmap(detail_wash)
+```
+
+<br></br>
+
+#### Summary
+
+The heatmaps show different levels of usage throughout each hour of the day
+by day of the week for each city. The heatmap for New York shows that the 
+days and times with the heaviest usage are on weekdays between 7am - 9am and 
+5pm - 7pm. Weekends during the day also seem to be popular in New York. The day 
+and time with the highest usage in New York is Wednesday at 5pm while the lowest usage 
+is Tuesday at 3am.
+
+This pattern is also mirrored pretty similarly in Chicago where the heaviest 
+usage times are weekdays from around 7am - 8am and around 4pm - 6pm. Weekends
+during the day also seem to be popular. The day and time with the highest usage 
+in Chicago is Thursday at 5pm and the lowest usage is Wednesday at 2 am. The 
+weekday pattern could be due to professionals utilizing bike sharing to commute 
+to and from work. The weekend patterns could be due to riders using the bikes for leisure.
+
+Interestingly, in Washington D.C the heaviest usage times are on weekdays 
+from around 5am - 8am, however this is not mirrored in the evening as expected. 
+For weekends, it seems that the late night/ early morning time is the most popular.
+The day and time with the highest usage is Wednesday at 8am and the lowest usage is
+Thursday at 12am. 
+
